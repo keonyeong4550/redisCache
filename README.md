@@ -5,25 +5,25 @@ redisCache processes
 ## 프로젝트 개선점 (Redis_Cache)
 1) TestDataController의 GetMapping 제거 또는 RequestMapping 사용
 ✅ 기존 코드
-<div style="border: 1px solid #ccc; padding: 10px; border-radius: 5px;">
+```
 @PostMapping("/generate-data")
 @GetMapping("/generate-data")
-</div>
+```
 ✅ 개선 코드 (GetMapping 제거)
-<div style="border: 1px solid #ccc; padding: 10px; border-radius: 5px;">
+```
 @PostMapping("/generate-data")
 또는 (RequestMapping 사용)
 @RequestMapping("/generate-data")
-</div>
+```
 ✅ 개선 이유
-<div style="border: 1px solid #ccc; padding: 10px; border-radius: 5px;">
+```
 •  데이터 생성 기능은 POST가 REST 규칙에 맞고 안전하다.
 •  GetMapping을 제거하면 RESTful 구조에 부합한다.
 •  RequestMapping 사용 시 중복이 줄어 유지보수가 용이하다
-</div>
+```
 2) SearchService의 getPopularKeywords() @Cacheable 삭제 또는 getPopularKeywordsRaw() 사용
 ✅ 기존 코드
-<div style="border: 1px solid #ccc; padding: 10px; border-radius: 5px;">
+```
 @Cacheable(value = "search", key = "'popular_keywords'")
 public List<String> getPopularKeywords(int limit) {
     try {
@@ -35,9 +35,9 @@ public List<String> getPopularKeywords(int limit) {
         return List.of();
     }
 }
-</div>
+```
 ✅ 개선 코드 
-<div style="border: 1px solid #ccc; padding: 10px; border-radius: 5px;">
+```
 public List<String>  getPopularKeywords (int limit) {
     try {
         Set<String> keywords = stringRedisTemplate.opsForZSet().reverseRange(POPULAR_KEYWORDS_KEY, 0, limit - 1);
@@ -48,30 +48,30 @@ public List<String>  getPopularKeywords (int limit) {
         return List.of();
     }
 }
-</div>
+```
 ✅ 개선 이유
-<div style="border: 1px solid #ccc; padding: 10px; border-radius: 5px;">
+```
 •  실시간 검색어는 초단위로 변하기 때문에 애플리케이션 캐시(@Cacheable) 사용 시 최신 데이터가 반영되지 않을 수 있다.
 •  Redis는 메모리 기반 저장소로 실시간 조회에 최적이며, 실시간 인기 검색어 기능의 표준 방식으로 사용된다.
 •  따라서 캐시 어노테이션을 제거하고 Redis 직접 조회 방식이 적합하다.
-</div>
+```
 3) script 파일 search(btn) 수정
-<div style="border: 1px solid #ccc; padding: 10px; border-radius: 5px;">
+```
 (addUserSearchKeyword / updatePopularKeywords 제거 후 loadKeywords 통합)
-</div>
+```
 ✅ 기존 코드
-<div style="border: 1px solid #ccc; padding: 10px; border-radius: 5px;">
+```
 addUserSearchKeyword(keyword);
 await updatePopularKeywords();
-</div>
+```
 ✅ 개선 코드
-<div style="border: 1px solid #ccc; padding: 10px; border-radius: 5px;">
+```
 loadKeywords();
 //    addUserSearchKeyword(keyword);
 //    await updatePopularKeywords();
-</div>
+```
 ✅ 개선 이유
-<div style="border: 1px solid #ccc; padding: 10px; border-radius: 5px;">
+```
 •  JS 또는 화면에 저장하는 방식은 간단하지만 다음 문제점이 있다:
 •	사용자별 저장 불가
 •	기기 간 동기화 불가
@@ -82,10 +82,10 @@ loadKeywords();
 •	검색 분석, 추천 기능 확장 가능
 •  또한 동일한 저장 구조 사용으로 코드 일관성과 유지보수가 좋아진다.
 •  RequestMapping 사용 시 중복이 줄어 유지보수가 용이하다
-</div>
+```
 4) SearchService의 processSearch() 메서드의 Redis 호출 합치기
 ✅ 기존 코드
-<div style="border: 1px solid #ccc; padding: 10px; border-radius: 5px;">
+```
 @CacheEvict(cacheNames = "search", allEntries = true)
     public void processSearch(String keyword) {
         saveOrUpdateSearchKeyword(keyword);
@@ -113,10 +113,10 @@ private void updateRecentKeywords(String keyword) {
         stringRedisTemplate.opsForList().leftPush(RECENT_KEYWORDS_KEY, keyword);
         stringRedisTemplate.opsForList().trim(RECENT_KEYWORDS_KEY, 0, 9);
     }
-</div>
+```
 
 ✅ 개선 코드
-<div style="border: 1px solid #ccc; padding: 10px; border-radius: 5px;">
+```
 @CacheEvict(cacheNames = "search", allEntries = true)
     public void processSearch(String keyword) {
         saveOrUpdateSearchKeyword(keyword);
@@ -152,15 +152,15 @@ private void saveOrUpdateSearchKeyword(String keyword) {
             }
         });
     }
-</div>
+```
 ✅ 개선 이유
-<div style="border: 1px solid #ccc; padding: 10px; border-radius: 5px;">
+```
 기존 코드에서는 updateRealTimeRanking / updateRecentKeywords 안에서 각각 독립적으로 Redis 명령을 보내 ZINCRBY + LREM + LPUSH + LTRIM까지 총 4번의 왕복이 생기고 있었다.
 이를 파이프라인으로 연결하여 1번의 왕복으로 Redis 명령을 처리할 수 있도록 수정하였다.
-</div>
+```
 5) SearchService의 getPopularKeywords() @Cacheable 삭제 또는 getPopularKeywordsRaw() 사용
 ✅ 기존 코드
-<div style="border: 1px solid #ccc; padding: 10px; border-radius: 5px;">
+```
 private void updateRedisBulkOnly(Map<String, Long> increments, List<String> recent) {
         stringRedisTemplate.executePipelined((RedisConnection conn) -> {
             var ser = stringRedisTemplate.getStringSerializer();
@@ -180,9 +180,9 @@ private void updateRedisBulkOnly(Map<String, Long> increments, List<String> rece
             return null;
         });
     }
-</div>
+```
 ✅ 개선 코드 
-<div style="border: 1px solid #ccc; padding: 10px; border-radius: 5px;">
+```
 private void updateRedisBulkOnly(Map<String, Long> increments, List<String> recent) {
         stringRedisTemplate.executePipelined(new SessionCallback<Object>() {
             @Override
@@ -206,40 +206,41 @@ private void updateRedisBulkOnly(Map<String, Long> increments, List<String> rece
             }
         });
     }
-</div>
+```
 ✅ 개선 이유
-<div style="border: 1px solid #ccc; padding: 10px; border-radius: 5px;">
+```
 RedisConnection 방식은 Redis 명령을 직접 제어할 수 있어 학습용으로는 좋지만, 직렬화를 직접 처리해야 하고 코드가 복잡해져 유지보수성이 크게 떨어진다. 
 반면 RedisTemplate의 고수준 API(opsForZSet, opsForList 등)를 파이프라인과 함께 사용하면 직렬화가 자동으로 처리된다. 또한 명령이 무엇을 처리하는지 코드만 보고도 쉽게 이해할 수 있어 가독성이 높아진다.
 이는 스프링이 의도한 방식(고수준 API의 사용)이라 팀 개발 환경에서 일관성이 유지되고 확장성, 안전성 측면에서도 훨씬 유리하다. 성능은 두 방식이 동일하기 때문에 성능을 이유로 RedisConnection을 쓸 필요도 없다. 결국 실제 프로젝트나 협업에서는 고수준 API + 파이프라인 방식이 더 안정적이고 실용적이다.
-</div>
+```
 6) clearAllCacheFast()에 캐시삭제 어노테이션 추가(@CacheEvict)
-<div style="border: 1px solid #ccc; padding: 10px; border-radius: 5px;">
+```
 - (같은 이유로 fastGenerateAndSnapshot()에 (@CacheEvict추가))
-</div>
+```
 ✅ 기존 코드
-<div style="border: 1px solid #ccc; padding: 10px; border-radius: 5px;">
+```
 public void clearAllCacheFast() {
     stringRedisTemplate.delete(POPULAR_KEYWORDS_KEY);
     stringRedisTemplate.delete(RECENT_KEYWORDS_KEY);
 }
-</div>
+```
 ✅ 개선 코드 
 clearAllCacheFast()에 어노테이션추가
-<div style="border: 1px solid #ccc; padding: 10px; border-radius: 5px;">
+```
 @CacheEvict(cacheNames = "search", allEntries = true)
 public void clearAllCacheFast() {
     stringRedisTemplate.delete(POPULAR_KEYWORDS_KEY);
     stringRedisTemplate.delete(RECENT_KEYWORDS_KEY);
 }
-</div>
+```
+
 ✅ 개선 이유
-<div style="border: 1px solid #ccc; padding: 10px; border-radius: 5px;">
+```
 •  Redis 데이터와 스프링 캐시는 서로 다른 저장소이다.
 •  Redis 데이터를 삭제해도 @Cacheable 캐시는 남아있을 수 있다.
 •  이 경우 캐시가 Redis보다 오래된 데이터를 반환하는 문제가 발생한다.
 •  @CacheEvict를 함께 사용하면 스프링 캐시도 즉시 제거할 수 있다.
 •  따라서 Redis와 스프링 캐시의 데이터 일관성을 위해 두 곳을 모두 지워야 한다.
-</div>
+```
 
 
