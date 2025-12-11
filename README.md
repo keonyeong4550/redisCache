@@ -1,9 +1,74 @@
 # redisCache
 redisCache processes
-[B팀_ 김민식, 박건영, 박태오, 오인준, 한정연.pdf](https://github.com/user-attachments/files/24049540/B._.pdf)
+# [B팀_ 김민식, 박건영, 박태오, 오인준, 한정연.pdf](https://github.com/user-attachments/files/24049540/B._.pdf)
 
-## 프로젝트 개선점 (Redis_Cache)
-1) TestDataController의 GetMapping 제거 또는 RequestMapping 사용
+## ■ 박건영 [개선전(FlowChart).pdf](https://github.com/user-attachments/files/24104358/Frame.1.pdf) | [개선후(FlowChart).pdf](https://github.com/user-attachments/files/24104374/FlowChart.pdf)
+
+# 🌿Redis Cache 코드 분석 review
+
+## 1. 개요
+```
+ Redis 가 적용된 실시간 검색어 및 최근 검색어 에 관한 코드 분석과 코드를 개선을 목표로 하고, Redis와 DB를 비교 분석한다.
+```
+## 2. 전체적인 흐름도
+
+###  가. 기본 동작
+
+    서버구동 → [application.properties](http://application.properties) → CacheConfig → 
+    index.html(localhost:8080) → Script.js → (init()) 
+
+###  나. 버튼 누름에 따른 동작
+ 
+    1) button.search(검색)
+    2) button.generateTestData(테스트데이터생성)
+    3) button.clearCache(캐시초기화)
+    4) button.checkRedisStatus(Redis 상태 확인)
+    5) button.compareRedisVsDB(Redis vs DB 비교)
+ 
+### 다. 버튼 누름에 따른 동작 시 자동동작
+    1) 검색어 데이터 DB 저장
+    2) Redis 랭킹 반영
+ 
+
+## 3. Logic 분석
+
+### 가. 기본 동작
+
+    1) /api/search/popular → SearchController  → SearchService → 
+       StringRedisTemplate → index.html(실시간 인기 검색어) → .json(), 
+       displayKeywords
+    2) /api/search/recent → SearchController  → SearchService → 
+       StringRedisTemplate → index.html(최근 검색어) → .json(), 
+       displayKeywords
+
+### 나. 버튼 누름에 따른 동작
+  
+    1) 검색: [button.search](http://button.search) → /api/search/, SearchController → SearchService → 
+        [가)saveOrUpdateSearchKeyword(keyword) → SearchKeywordRepository 
+         → {(.findByKeyword → DB), (.save(searchKeyword) → DB)}, 
+         나) updateRealTimeRanking(keyword) → StringRedisTemplate
+         다) updateRecentKeywords(keyword) → StringRedisTemplate] → 
+         index.html
+    2) 테스트데이터생성: [button.generateTestData → /api/test/generate-data, 
+        TestDataController → SearchService → SearchKeywordRepository → 
+        {(.findAllByKeywordIn → DB), (.saveAll(toSave) → DB)}], [가. 기본동작 { 1), 
+        2) }]
+    3) 캐시초기화: [button.clearCache → /api/test/clear-cache, 
+        TestDataController → SearchService → StringRedisTemplate
+        (.delete(POPULAR_KEYWORDS_KEY), .delete(RECENT_KEYWORDS_KEY) )]
+        , [가. 기본동작 { 1), 2) }]
+    4) Redis 상태 확인: button.checkRedisStatus → /api/search/debug/redis-
+         status, SearchController → SearchService →  StringRedisTemplate → 
+         index.html(Redis상태확인) 
+    5) Redis vs DB 비교: button.compareRedisVsDB → /api/search/
+         compare/redis-vs-db → SearchController → SearchService → 
+         {(SearchKeywordRepository → DB), (StringRedisTemplate)} → 
+         index.html(Redis vs DB확인)
+
+### 2025-12-11 22:40🌿
+
+## 4. 프로젝트 개선점 (Redis_Cache)
+### 가. TestDataController의 GetMapping 제거 또는 RequestMapping 사용
 ✅ 기존 코드
 ```
 @PostMapping("/generate-data")
@@ -21,7 +86,7 @@ redisCache processes
 •  GetMapping을 제거하면 RESTful 구조에 부합한다.
 •  RequestMapping 사용 시 중복이 줄어 유지보수가 용이하다
 ```
-2) SearchService의 getPopularKeywords() @Cacheable 삭제 또는 getPopularKeywordsRaw() 사용
+### 나. SearchService의 getPopularKeywords() @Cacheable 삭제 또는 getPopularKeywordsRaw() 사용
 ✅ 기존 코드
 ```
 @Cacheable(value = "search", key = "'popular_keywords'")
@@ -55,7 +120,7 @@ public List<String>  getPopularKeywords (int limit) {
 •  Redis는 메모리 기반 저장소로 실시간 조회에 최적이며, 실시간 인기 검색어 기능의 표준 방식으로 사용된다.
 •  따라서 캐시 어노테이션을 제거하고 Redis 직접 조회 방식이 적합하다.
 ```
-3) script 파일 search(btn) 수정
+### 다. script 파일 search(btn) 수정
 ```
 (addUserSearchKeyword / updatePopularKeywords 제거 후 loadKeywords 통합)
 ```
@@ -83,7 +148,7 @@ loadKeywords();
 •  또한 동일한 저장 구조 사용으로 코드 일관성과 유지보수가 좋아진다.
 •  RequestMapping 사용 시 중복이 줄어 유지보수가 용이하다
 ```
-4) SearchService의 processSearch() 메서드의 Redis 호출 합치기
+### 라. SearchService의 processSearch() 메서드의 Redis 호출 합치기
 ✅ 기존 코드
 ```
 @CacheEvict(cacheNames = "search", allEntries = true)
@@ -158,7 +223,7 @@ private void saveOrUpdateSearchKeyword(String keyword) {
 기존 코드에서는 updateRealTimeRanking / updateRecentKeywords 안에서 각각 독립적으로 Redis 명령을 보내 ZINCRBY + LREM + LPUSH + LTRIM까지 총 4번의 왕복이 생기고 있었다.
 이를 파이프라인으로 연결하여 1번의 왕복으로 Redis 명령을 처리할 수 있도록 수정하였다.
 ```
-5) SearchService의 getPopularKeywords() @Cacheable 삭제 또는 getPopularKeywordsRaw() 사용
+### 마. SearchService의 getPopularKeywords() @Cacheable 삭제 또는 getPopularKeywordsRaw() 사용
 ✅ 기존 코드
 ```
 private void updateRedisBulkOnly(Map<String, Long> increments, List<String> recent) {
@@ -213,7 +278,7 @@ RedisConnection 방식은 Redis 명령을 직접 제어할 수 있어 학습용�
 반면 RedisTemplate의 고수준 API(opsForZSet, opsForList 등)를 파이프라인과 함께 사용하면 직렬화가 자동으로 처리된다. 또한 명령이 무엇을 처리하는지 코드만 보고도 쉽게 이해할 수 있어 가독성이 높아진다.
 이는 스프링이 의도한 방식(고수준 API의 사용)이라 팀 개발 환경에서 일관성이 유지되고 확장성, 안전성 측면에서도 훨씬 유리하다. 성능은 두 방식이 동일하기 때문에 성능을 이유로 RedisConnection을 쓸 필요도 없다. 결국 실제 프로젝트나 협업에서는 고수준 API + 파이프라인 방식이 더 안정적이고 실용적이다.
 ```
-6) clearAllCacheFast()에 캐시삭제 어노테이션 추가(@CacheEvict)
+### 바. clearAllCacheFast()에 캐시삭제 어노테이션 추가(@CacheEvict)
 ```
 - (같은 이유로 fastGenerateAndSnapshot()에 (@CacheEvict추가))
 ```
@@ -242,5 +307,6 @@ public void clearAllCacheFast() {
 •  @CacheEvict를 함께 사용하면 스프링 캐시도 즉시 제거할 수 있다.
 •  따라서 Redis와 스프링 캐시의 데이터 일관성을 위해 두 곳을 모두 지워야 한다.
 ```
+
 
 
