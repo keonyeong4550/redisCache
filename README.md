@@ -8,7 +8,8 @@ redisCache processes
 
 ## 1. 개요
 ```
- Redis 가 적용된 실시간 검색어 및 최근 검색어 에 관한 코드 분석과 코드를 개선을 목표로 하고, Redis와 DB를 비교 분석한다.
+ Redis 가 적용된 실시간 검색어 및 최근 검색어 에 관한 코드 분석과 
+ 코드를 개선을 목표로 하고, Redis와 DB를 비교 분석한다.
 ```
 ## 2. 전체적인 흐름도
 
@@ -43,7 +44,8 @@ redisCache processes
 
 ### 나. 버튼 누름에 따른 동작
   
-    1) 검색: [button.search](http://button.search) → /api/search/, SearchController → SearchService → 
+    1) 검색: [button.search](http://button.search) → /api/search/, 
+        SearchController → SearchService → 
         [가)saveOrUpdateSearchKeyword(keyword) → SearchKeywordRepository 
          → {(.findByKeyword → DB), (.save(searchKeyword) → DB)}, 
          나) updateRealTimeRanking(keyword) → StringRedisTemplate
@@ -86,13 +88,15 @@ redisCache processes
 •  GetMapping을 제거하면 RESTful 구조에 부합한다.
 •  RequestMapping 사용 시 중복이 줄어 유지보수가 용이하다
 ```
-### 나. SearchService의 getPopularKeywords() @Cacheable 삭제 또는 getPopularKeywordsRaw() 사용
+### 나. SearchService의 getPopularKeywords() @Cacheable 삭제 또는 
+        getPopularKeywordsRaw() 사용
 ✅ 기존 코드
 ```
 @Cacheable(value = "search", key = "'popular_keywords'")
 public List<String> getPopularKeywords(int limit) {
     try {
-        Set<String> keywords = stringRedisTemplate.opsForZSet().reverseRange(POPULAR_KEYWORDS_KEY, 0, limit - 1);
+        Set<String> keywords = stringRedisTemplate.opsForZSet()
+        .reverseRange(POPULAR_KEYWORDS_KEY, 0, limit - 1);
         if (keywords == null) return List.of();
         return new ArrayList<>(keywords);
     } catch (RuntimeException ex) {
@@ -105,7 +109,8 @@ public List<String> getPopularKeywords(int limit) {
 ```
 public List<String>  getPopularKeywords (int limit) {
     try {
-        Set<String> keywords = stringRedisTemplate.opsForZSet().reverseRange(POPULAR_KEYWORDS_KEY, 0, limit - 1);
+        Set<String> keywords = stringRedisTemplate.opsForZSet()
+        .reverseRange(POPULAR_KEYWORDS_KEY, 0, limit - 1);
         if (keywords == null) return List.of();
         return new ArrayList<>(keywords);
     } catch (RuntimeException ex) {
@@ -116,8 +121,10 @@ public List<String>  getPopularKeywords (int limit) {
 ```
 ✅ 개선 이유
 ```
-•  실시간 검색어는 초단위로 변하기 때문에 애플리케이션 캐시(@Cacheable) 사용 시 최신 데이터가 반영되지 않을 수 있다.
-•  Redis는 메모리 기반 저장소로 실시간 조회에 최적이며, 실시간 인기 검색어 기능의 표준 방식으로 사용된다.
+•  실시간 검색어는 초단위로 변하기 때문에 애플리케이션 캐시(@Cacheable) 사용 시 
+   최신 데이터가 반영되지 않을 수 있다.
+•  Redis는 메모리 기반 저장소로 실시간 조회에 최적이며, 실시간 인기 검색어 기능의 
+   표준 방식으로 사용된다.
 •  따라서 캐시 어노테이션을 제거하고 Redis 직접 조회 방식이 적합하다.
 ```
 ### 다. script 파일 search(btn) 수정
@@ -170,7 +177,8 @@ private void saveOrUpdateSearchKeyword(String keyword) {
     }
 
 private void updateRealTimeRanking(String keyword) {
-        stringRedisTemplate.opsForZSet().incrementScore(POPULAR_KEYWORDS_KEY, keyword, 1);
+        stringRedisTemplate.opsForZSet().incrementScore(POPULAR_KEYWORDS_KEY
+        , keyword, 1);
     }
 
 private void updateRecentKeywords(String keyword) {
@@ -220,7 +228,8 @@ private void saveOrUpdateSearchKeyword(String keyword) {
 ```
 ✅ 개선 이유
 ```
-기존 코드에서는 updateRealTimeRanking / updateRecentKeywords 안에서 각각 독립적으로 Redis 명령을 보내 ZINCRBY + LREM + LPUSH + LTRIM까지 총 4번의 왕복이 생기고 있었다.
+기존 코드에서는 updateRealTimeRanking / updateRecentKeywords 안에서 각각 독립적으로 Redis 명령을 보내 
+ZINCRBY + LREM + LPUSH + LTRIM까지 총 4번의 왕복이 생기고 있었다.
 이를 파이프라인으로 연결하여 1번의 왕복으로 Redis 명령을 처리할 수 있도록 수정하였다.
 ```
 ### 마. SearchService의 getPopularKeywords() @Cacheable 삭제 또는 getPopularKeywordsRaw() 사용
@@ -274,9 +283,15 @@ private void updateRedisBulkOnly(Map<String, Long> increments, List<String> rece
 ```
 ✅ 개선 이유
 ```
-RedisConnection 방식은 Redis 명령을 직접 제어할 수 있어 학습용으로는 좋지만, 직렬화를 직접 처리해야 하고 코드가 복잡해져 유지보수성이 크게 떨어진다. 
-반면 RedisTemplate의 고수준 API(opsForZSet, opsForList 등)를 파이프라인과 함께 사용하면 직렬화가 자동으로 처리된다. 또한 명령이 무엇을 처리하는지 코드만 보고도 쉽게 이해할 수 있어 가독성이 높아진다.
-이는 스프링이 의도한 방식(고수준 API의 사용)이라 팀 개발 환경에서 일관성이 유지되고 확장성, 안전성 측면에서도 훨씬 유리하다. 성능은 두 방식이 동일하기 때문에 성능을 이유로 RedisConnection을 쓸 필요도 없다. 결국 실제 프로젝트나 협업에서는 고수준 API + 파이프라인 방식이 더 안정적이고 실용적이다.
+RedisConnection 방식은 Redis 명령을 직접 제어할 수 있어 학습용으로는 좋지만, 직렬화를 
+직접 처리해야 하고 코드가 복잡해져 유지보수성이 크게 떨어진다. 
+반면 RedisTemplate의 고수준 API(opsForZSet, opsForList 등)를 파이프라인과 함께 사용하면 
+직렬화가 자동으로 처리된다. 또한 명령이 무엇을 처리하는지 코드만 보고도 쉽게 이해할 수 있어 
+가독성이 높아진다.
+이는 스프링이 의도한 방식(고수준 API의 사용)이라 팀 개발 환경에서 일관성이 유지되고 확장성, 
+안전성 측면에서도 훨씬 유리하다. 성능은 두 방식이 동일하기 때문에 성능을 이유로 RedisConnection을 
+쓸 필요도 없다. 결국 실제 프로젝트나 협업에서는 고수준 API + 파이프라인 방식이 
+더 안정적이고 실용적이다.
 ```
 ### 바. clearAllCacheFast()에 캐시삭제 어노테이션 추가(@CacheEvict)
 ```
